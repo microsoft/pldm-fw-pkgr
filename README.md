@@ -57,7 +57,7 @@ And then use the pldm.exe under dist/pldm folder to use the tool in the below wa
 		ii) header.json file (PLDM Header file)
 
 2. To repack a firmware bundle
-	If not available, point to the unpack folder which contains the component image files and header.json files and run
+	If not available, point to the unpack folder which contains the component image files (.bin) and header.json file (populated) and run
 	
 	pldm.exe -F workspace\unpack -N repack
 	
