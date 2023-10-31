@@ -180,10 +180,10 @@
             "length": 2,
             "data_type": "bytes"
         },
-        "ComponentIdentifier": {
-            "length": 2,
-            "data_type": "special_decode"
-        },
+      "ComponentIdentifier": {
+        "length": 2,
+        "data_type": "int"
+      },
         "ComponentComparisonStamp": {
             "length": 4,
             "data_type": "bytes"
