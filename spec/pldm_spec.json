@@ -182,7 +182,7 @@
         },
       "ComponentIdentifier": {
         "length": 2,
-        "data_type": "int"
+        "data_type": "special_decode"
       },
         "ComponentComparisonStamp": {
             "length": 4,

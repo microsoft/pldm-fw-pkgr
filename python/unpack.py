@@ -274,7 +274,7 @@ def image_extraction(firmware_data_new,image_json,folder):
     for i in range(count):
         file_name_version = image_json['ComponentImageInformation'][i]['ComponentVersionString']
         file_name_identifier = image_json['ComponentImageInformation'][i]['ComponentIdentifier']
-        file_name = str(file_name_identifier)+"_"+str(file_name_version) + "_image.bin"
+        file_name = file_name_identifier+"_"+file_name_version + "_image.bin"
         #from the output file extracting the index from where the image starts
         image_start = image_json['ComponentImageInformation'][i]['ComponentLocationOffset']
         #from the output file extracting the index where the image ends

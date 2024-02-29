@@ -17,7 +17,8 @@ sys.path.append(parent_dir)
 from python import unpack
 from python import repack
 
-def corrupt_binary_data(data, positions):
+#To be removed
+def corrupt_binary_data_old(data, positions=None):
     # for each position, flip the last bit of the byte in the data
     for pos in positions:
       # get the byte index
@@ -33,6 +34,25 @@ def corrupt_binary_data(data, positions):
     # return the corrupted data
     return data
 
+def corrupt_binary_data(data):
+    # first byte align the hex string 
+    odd_length=0
+    if len(data)%2 == 1:
+        data = '0x0' + data.split('0x')[1]
+        odd_length=1
+    #remove '0x' and create a bytearray
+    data = bytearray.fromhex(data[2:])
+    import random
+    #Go byte wise and chose a bit to corrupt
+    for corrupt_byte_index in range (0, len(data)):
+        corrupt_bit_index = (random.randint(0,7))
+        data[corrupt_byte_index] ^= 1 << corrupt_bit_index
+        #print(corrupt_byte_index, corrupt_bit_index, len(data), data[corrupt_byte_index], data)
+    #Convert back to hexstring
+    data = '0x' + data.hex()[odd_length:]
+    print(data)
+    return data
+
 def descriptor_error(output_dict):
     """
     This function injects error to the initial descriptor data of the first record
@@ -40,10 +60,11 @@ def descriptor_error(output_dict):
         output_dict: ouptut dictionary having all the values
     """
     data = output_dict["FirmwareDeviceIdentificationArea"]["FirmwareDeviceIDRecords"][0]["RecordDescriptors"][0]["InitialDescriptorData"]
-    data = bytearray(data,"utf-8")
-    corrupted_data = corrupt_binary_data(data, [3, 5, 4])#function for corruption data
-    corrupted_data_hex = corrupted_data.decode("utf-8")
-    output_dict["FirmwareDeviceIdentificationArea"]["FirmwareDeviceIDRecords"][0]["RecordDescriptors"][0]["InitialDescriptorData"] = corrupted_data_hex
+    #data = bytearray(data,"utf-8")
+    #corrupted_data = corrupt_binary_data(data)#function for corruption data
+    corrupted_data = corrupt_binary_data(data)#function for corruption data
+    #corrupted_data_hex = corrupted_data.decode("utf-8")
+    output_dict["FirmwareDeviceIdentificationArea"]["FirmwareDeviceIDRecords"][0]["RecordDescriptors"][0]["InitialDescriptorData"] = corrupted_data
     #### Data is corruptes inside output dictionary
 
 def UUID_error(output_dict):
@@ -52,14 +73,22 @@ def UUID_error(output_dict):
     Parameter:
         output_dict: ouptut dictionary having all the values
     """
-    data = output_dict["FirmwareDeviceIdentificationArea"]["FirmwareDeviceIDRecords"][4]["RecordDescriptors"][1]["AdditionalDescriptorIdentifierData"]
-    data = bytearray(data,"utf-8")
-    corrupted_data = corrupt_binary_data(data, [2, 4, 4])#function for corruption data
-    corrupted_data_hex = corrupted_data.decode("utf-8")
-    output_dict["FirmwareDeviceIdentificationArea"]["FirmwareDeviceIDRecords"][4]["RecordDescriptors"][1]["AdditionalDescriptorIdentifierData"] = corrupted_data_hex
+    target_record = random.randint(0,len(output_dict["FirmwareDeviceIdentificationArea"]["FirmwareDeviceIDRecords"])-1)
+    index = 0
+    for element in output_dict["FirmwareDeviceIdentificationArea"]["FirmwareDeviceIDRecords"][target_record]["RecordDescriptors"]:
+        if 'AdditionalDescriptorType' in element and element['AdditionalDescriptorType']=='UUID':
+            target_desc = index
+        index = index + 1
+    data = output_dict["FirmwareDeviceIdentificationArea"]["FirmwareDeviceIDRecords"][target_record]["RecordDescriptors"][target_desc]["AdditionalDescriptorIdentifierData"]
+    print(data)
+    #data = bytearray(data,"utf-8")
+    #corrupted_data = corrupt_binary_data(data, [2, 4, 4])#function for corruption data
+    corrupted_data = corrupt_binary_data(data)#function for corruption data
+    #corrupted_data_hex = corrupted_data.decode("utf-8")
+    output_dict["FirmwareDeviceIdentificationArea"]["FirmwareDeviceIDRecords"][target_record]["RecordDescriptors"][1]["AdditionalDescriptorIdentifierData"] = corrupted_data
     #### Data is corruptes inside output dictionary
 
-def image_error(output_dict,firmware_data,error_folder):
+def image_error_old(output_dict,firmware_data,error_folder):
     """
     This function injects error in the image file having ComponentIdentifier 0x70
     Parameter:
@@ -81,6 +110,32 @@ def image_error(output_dict,firmware_data,error_folder):
     #write back the corrupted data to image bin file
     with open(file_name_path,'wb') as f:
             f.write(corrupted_data)
+
+def image_error(output_dict,firmware_data,error_folder):
+    """
+    This function randomly picks the individual image components and injects error in them 
+    Parameter:
+        output_dict: ouptut dictionary having all the values
+        firmware_data:Pldm firmware package
+        error_folder:output error folder
+    """
+    error_folder = str(error_folder)
+    image_information_index=0
+    for image_information_index in range(0,len(output_dict["ComponentImageInformationArea"]['ComponentImageInformation'])):
+        file_name_version = output_dict["ComponentImageInformationArea"]['ComponentImageInformation'][image_information_index]['ComponentVersionString']
+        file_name_identifier = output_dict["ComponentImageInformationArea"]['ComponentImageInformation'][image_information_index]['ComponentIdentifier']
+        file_name = file_name_identifier+"_"+file_name_version + "_image.bin"
+        image_start = output_dict["ComponentImageInformationArea"]['ComponentImageInformation'][image_information_index]['ComponentLocationOffset']
+        image_end = image_start+output_dict["ComponentImageInformationArea"]['ComponentImageInformation'][image_information_index]['ComponentSize']
+        image_information_index = image_information_index+1
+        #extarct the image data
+        image_data = firmware_data[image_start:image_end]
+        mask = 0b00000010 # create a mask with a 1 bit at position 7
+        corrupted_data = bytes([image_data[0] ^ mask] + list(image_data[1:])) # flip the bit using bitwise XOR and create a new byte string
+        file_name_path = error_folder+"/unpack/"+file_name
+        #write back the corrupted data to image bin file
+        with open(file_name_path,'wb') as f:
+                f.write(corrupted_data)
 
 def signkey_error(signkey_data,error_folder):
     """
