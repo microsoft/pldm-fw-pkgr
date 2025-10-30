@@ -1,6 +1,3 @@
-# Copyright (c) Microsoft Corporation.
-# Licensed under the MIT License.
-
 import json 
 from datetime import datetime
 import binascii
@@ -10,13 +7,16 @@ import zlib
 import argparse
 import os
 from pathlib import Path
+from functools import reduce
 
 #to store the output of PackageHeaderInformation
 #will be used to extract the length of ApplicableComponents stored in ComponentBitmapBitLength
 info = {} 
 
 #decoded data bytes will be stored here to calculate checksum
-checksum_data = b""
+header_checksum_data = b""
+
+CRC_Match = False
 
 def parse_field(data, data_type):
     """
@@ -26,39 +26,33 @@ def parse_field(data, data_type):
             data_type: data types(hex,int,ASCII)
     """
     if isinstance(data, bytes):
-        if data_type == 'hex':  
-            return data.hex()
-        #this is used to handle the cases of reversed outputs
-        elif data_type == 'special_decode':
-            return hex(int.from_bytes(data, byteorder='little'))
-        elif data_type == 'int':  
+        if data_type == 'hex-le':
+            value = hex(int.from_bytes(data, byteorder='little')) if data else ''
+            return value
+        elif data_type == 'UUID':
+            value = hex(int.from_bytes(data, byteorder='big'))
+            return value
+        elif data_type == 'hex-be':
+            value = hex(int.from_bytes(data, byteorder='big'))
+            return value
+        elif data_type == 'int':
             return int.from_bytes(data, byteorder='little')
-        elif data_type == 'string':  
+        elif data_type == 'string':
             return data.decode()
         elif data_type == 'timestamp':
             return decode_timestamp(data)
-        elif data_type == 'bytes':
-            return int.from_bytes(data,'little')
         elif data_type == 'ASCII':
             data = data.hex()
             bytes_obj = binascii.unhexlify(data)
             return bytes_obj.decode()
-        elif data_type == 'utf-8':
-            data = data.hex()
-            bytes_obj = binascii.unhexlify(data)
-            return bytes_obj.decode('utf-8')
-        elif data_type == 'utf-16':
-            data = data.hex()
-            bytes_obj = binascii.unhexlify(data)
-            return bytes_obj.decode('utf-16')
-        elif data_type == 'utf-16le':
-            data = data.hex()
-            bytes_obj = binascii.unhexlify(data)
-            return bytes_obj.decode('utf-16le')
-        elif data_type == 'utf-16be':
-            data = data.hex()
-            bytes_obj = binascii.unhexlify(data)
-            return bytes_obj.decode('utf-16be')
+        elif data_type == 'UTF8':
+            return data.decode('utf-8')
+        elif data_type == 'UTF16':
+            return data.decode('utf-16')
+        elif data_type == 'UTF16LE':
+            return data.decode('utf-16le')
+        elif data_type == 'UTF16BE':
+            return data.decode('utf-16be')
         
     elif isinstance(data, str):
         # Handle string data
@@ -81,22 +75,27 @@ def decode_timestamp(data):
     microsecond = int.from_bytes(data[2:5], 'little')# the microsecond (3 bytes)
     utc_offset = int.from_bytes(data[:2], 'little', signed=True) # the UTC offset (2 bytes)
     dt = datetime(year, month, day, hour, minute, second, microsecond)
-    utc_offset_str = str(utc_offset).zfill(4)
-    return dt.strftime("%Y-%m-%d %H:%M:%S:%f")+" +"+ utc_offset_str
+    #Determine sign and format UTC offset
+    sign = '+' if utc_offset >= 0 else '-'
+    utc_offset_str = str(abs(utc_offset)).zfill(4)
+    
+    resolution_str = f"0x{utc_time_resolution:02x}"
+    return dt.strftime("%Y-%m-%d %H:%M:%S:%f") + f" {sign}{utc_offset_str} ({resolution_str})"
 
-def process(firmware_data, output_dict, field_name, data_length, data_type):
+def process(firmware_data, output_dict, field_name, data_length, data_type, offset):
     """
     This function extracts the bytes of length "data_length" and pass the extracted bytes to parse field for decoding and removes 
     them form the firmware data
         Parameters:
             firmware_data: PLDM firmware package
-            output_dict: output dicitionary with all the decoded values
+            output_dict: output dictionary with all the decoded values
             field name :current field
-            data_length: length of field extarcted from spec folder
+            data_length: length of field extracted from spec folder
             data_type: data_type of field extracted from spec folder
             folder:output folder
     """
-    global checksum_data
+    global header_checksum_data
+    global CRC_Match
     operators = ["+", "-", "*", "/"]
     functions = {"+": operator.add, "-": operator.sub, "*": operator.mul, "/": operator.truediv}
     #When the length field has +,-,/,*
@@ -104,26 +103,29 @@ def process(firmware_data, output_dict, field_name, data_length, data_type):
         for op in operators:
             if op in data_length:
                 parts = data_length.split(op)
-                before = parts[0]
-                after = parts[1]
-                before_num = output_dict[before]
-                after_num = output_dict[after]
-                data_length = functions[op](before_num, after_num)
+                converted_parts = [int(part) if part.isdigit() else output_dict[part] for part in parts]
+                data_length = reduce(functions[op], converted_parts)
                 break
         else:
             data_length = output_dict[data_length]
     # calculating checksum
-    if(field_name == "Package Header Checksum"):
-        output_dict[field_name] = zlib.crc32(checksum_data) 
+    if(field_name == "PackageHeaderChecksum"):
+        print("Unpacked Header Checksum = ",parse_field(firmware_data[offset:offset + data_length], data_type))
+        output_dict[field_name] = zlib.crc32(header_checksum_data)
+        print("Calculated Header Checksum =",output_dict[field_name])
+        if parse_field(firmware_data[offset:offset + data_length], data_type) == output_dict[field_name]:
+            CRC_Match = True
+        else:
+            CRC_Match = False
     else:
-        output_dict[field_name] = parse_field(firmware_data[:data_length], data_type)
-    #appending decoded bytes -this will be used to calculate checksum while unpacking
-    checksum_data += firmware_data[:data_length] 
-    #removing the processed bytes
-    firmware_data = firmware_data[data_length:] 
-    return firmware_data
+        output_dict[field_name] = parse_field(firmware_data[offset:offset + data_length], data_type if not data_type in output_dict else output_dict[data_type])
 
-def process_decode(firmware_data, output_dict, field_name, data_length, data_type,decode,field_info):
+    #appending decoded bytes -this will be used to calculate checksum while unpacking
+    header_checksum_data += firmware_data[offset: offset + data_length]
+    offset = offset + data_length
+    return offset
+
+def process_decode(firmware_data, output_dict, field_name, data_length, data_type,decode,field_info, offset):
     """
     This function is for fields having special key-decode
         Parameter:
@@ -135,37 +137,47 @@ def process_decode(firmware_data, output_dict, field_name, data_length, data_typ
             decode: decode spec from json file
             field info: value of the current field
     """
-    global checksum_data
+    global header_checksum_data
     #Length is an integer and names associated with the extracted value is stored in decode key
     if isinstance(field_info["length"],int):
-        output_dict[field_name] = parse_field(firmware_data[:data_length], data_type)
+        output_dict[field_name] = parse_field(firmware_data[offset:offset + data_length], data_type)
         value = output_dict[field_name]
-        output_dict[field_name] = decode[value]
-        checksum_data +=firmware_data[:data_length]
+        output_dict[field_name] = next(
+            (v for k, v in decode.items() if int(value, 16) == int(k, 16)),
+            None
+        )
+        # output_dict[field_name] = decode[str(value)] if str(value) in decode else decode[value]
+        header_checksum_data +=firmware_data[offset:offset + data_length]
+        offset = offset + data_length
     # For AdditionalDescriptorType having AdditionalDescriptorType as Vendor Defined and indirect data length
     elif("Vendor Defined" in decode):
         if(output_dict["AdditionalDescriptorType"] == "Vendor Defined"):
             data_length = output_dict[data_length]
-            firmware_data_vendor = firmware_data[:data_length]
-            firmware_data_dump=search(firmware_data_vendor,decode["Vendor Defined"],output_dict)
+            firmware_data_vendor = firmware_data[offset:offset + data_length]
+            _=search(firmware_data_vendor,decode["Vendor Defined"],output_dict, 0)
+            offset += data_length
         else:
             #For AdditionalDescriptorType having indirect data length
             data_length = output_dict[data_length]
-            output_dict[field_name] = parse_field(firmware_data[:data_length], data_type)
-            checksum_data +=firmware_data[:data_length]
-    else: 
-        #data_type and data_length are indirect 
+            output_dict[field_name] = parse_field(firmware_data[offset:offset + data_length], data_type)
+            # if data_type == "hex-le" and output_value:    
+            #     output_value = int(output_value, 16)
+            #     output_value = hex(output_value)
+            # output_dict[field_name] = output_value
+            header_checksum_data +=firmware_data[offset:offset + data_length]
+            offset += data_length
+    else:
+        #data_type and data_length are indirect and the decode section doesn't have vendor defined section
         data_length = output_dict[data_length]
         data_type_no = output_dict[data_type]
         data_type = decode[str(data_type_no)]
-        output_dict[field_name] = parse_field(firmware_data[:data_length], data_type)
-        #process data added to checksum_data
-        checksum_data +=firmware_data[:data_length]
-    #processed bytes are removed and firmware data is updated
-    firmware_data = firmware_data[data_length:]
-    return firmware_data
+        output_dict[field_name] = parse_field(firmware_data[offset:offset + data_length], data_type)
+        #process data added to header_checksum_data
+        header_checksum_data +=firmware_data[offset:offset + data_length]
+        offset += data_length
+    return offset
 
-def process_count(firmware_data, output_dict, field_name, input_json_data, count_field):
+def process_count(firmware_data, output_dict, field_name, input_json_data, count_field, offset):
     """
     This function is for the fields having multiple instances in firmware data and having same spec
     Parameters:
@@ -211,16 +223,18 @@ def process_count(firmware_data, output_dict, field_name, input_json_data, count
             input_json_data_precount[list(input_json_data_copy)[0]]=input_json_data_copy[list(input_json_data_copy)[0]]
             input_json_data_copy.pop(list(input_json_data_copy)[0])
         output_dict[field_name].append({})
-        firmware_data = search(firmware_data, input_json_data_precount, output_dict[field_name][0])
+        offset = search(firmware_data, input_json_data_precount, output_dict[field_name][0], offset)
         #Update count_index for the array of repeated entries
         count_index=1
     #for fields having multiple instances in firmware data
     for i in range(count_index, count):
         output_dict[field_name].append({})
-        firmware_data = search(firmware_data, input_json_data_copy, output_dict[field_name][i])
-    return firmware_data
+        offset = search(firmware_data, input_json_data_copy, output_dict[field_name][i], offset)
+    if output_dict[field_name] == []:
+        output_dict.pop(field_name)
+    return offset
 
-def search(firmware_data, input_json_data, output_dict):
+def search(firmware_data, input_json_data, output_dict, offset):
     """
     It is a recursive function used to get the keys inside the innermost dictionary of spec json
     Parameters:
@@ -238,60 +252,63 @@ def search(firmware_data, input_json_data, output_dict):
                 if(field_info["length"]=="ComponentBitmapBitLength"):
                     #a special case for applicable components field
                     data_length = int(info["ComponentBitmapBitLength"]/8)
-                    firmware_data = process_decode(firmware_data, output_dict,field_name, data_length, field_info["data_type"],field_info["decode"],field_info)
+                    offset = process_decode(firmware_data, output_dict,field_name, data_length, field_info["data_type"],field_info["decode"],field_info, offset)
                 else:
-                    firmware_data = process_decode(firmware_data, output_dict,field_name, field_info["length"], field_info["data_type"],field_info["decode"],field_info)
-                continue
+                    offset = process_decode(firmware_data, output_dict,field_name, field_info["length"], field_info["data_type"],field_info["decode"],field_info, offset)
             #if length is present, it means we have reached the innermost level
             elif "length" in field_info:
                 if(field_info["length"]=="ComponentBitmapBitLength"):
                     data_length = int(info["ComponentBitmapBitLength"]/8)
-                    firmware_data = process(firmware_data, output_dict,field_name, data_length, field_info["data_type"])
+                    offset = process(firmware_data, output_dict,field_name, data_length, field_info["data_type"], offset)
                 else:
-                    firmware_data = process(firmware_data, output_dict,field_name, field_info["length"], field_info["data_type"])
+                    offset = process(firmware_data, output_dict,field_name, field_info["length"], field_info["data_type"], offset)
             #for keys having additional key count in them
             elif "count" in field_info:
-                firmware_data=process_count(firmware_data,output_dict,field_name,field_info,field_info["count"])
-                continue
+                offset=process_count(firmware_data,output_dict,field_name,field_info,field_info["count"], offset)
             #none of the conditons were true-recursive call
             else:
-                firmware_data = search(firmware_data, field_info,output_dict[field_name])
+                offset = search(firmware_data, field_info,output_dict[field_name], offset)
             #for applicable component field as value of length is present in another field which is present in another level of the dictionary
             if(field_name == "PackageVersionString"):
                 info = output_dict
-    return firmware_data
+    return offset
 
-
-def image_extraction(firmware_data_new,image_json,folder):
+def image_extraction(firmware_data,image_json,folder, dump_header):
     """
     This function extracts the images from the firmware package and creates bin files using identifier and version as the file name
         Parameters:
-            firmware_data_new  = firmware data
+            firmware_data_new  = full firmware bundle
             image_json: image dictionary from spec
-            folder:output folder
+            folder: output folder
+            dump_header: flag to indicate whether to dump only header.json or extract images too
     """
+    payload_data = b''
     count = image_json["ComponentImageCount"]
     for i in range(count):
         file_name_version = image_json['ComponentImageInformation'][i]['ComponentVersionString']
         file_name_identifier = image_json['ComponentImageInformation'][i]['ComponentIdentifier']
-        file_name = file_name_identifier+"_"+file_name_version + "_image.bin"
+        file_name = file_name_identifier + "_" + file_name_version + "_image_" + str(i) + ".bin"
         #from the output file extracting the index from where the image starts
         image_start = image_json['ComponentImageInformation'][i]['ComponentLocationOffset']
         #from the output file extracting the index where the image ends
         image_end = image_start+image_json['ComponentImageInformation'][i]['ComponentSize']
-        image_data = firmware_data_new[image_start:image_end]
+        image_data = firmware_data[image_start:image_end]
+        payload_data+=image_data
         file_name_path = folder/file_name
-        with open(file_name_path,'wb') as f:
-            f.write(image_data)
-    #extracting the sign key and creting a bin file for it
+        if not dump_header:
+            with open(file_name_path,'wb') as f:
+                f.write(image_data)
+    #extracting the sign key and creating a bin file for it
     lastImage = count-1
     start = image_json['ComponentImageInformation'][lastImage]['ComponentLocationOffset'] + image_json['ComponentImageInformation'][lastImage]['ComponentSize']
-    end = sys.getsizeof(firmware_data_new)
-    remaining_data = firmware_data_new[start:end]
-    with open(folder/"remaining_firmwareData.bin",'wb') as f:
-        f.write(remaining_data)
-
-def main(file_path,output):
+    end = sys.getsizeof(firmware_data)
+    remaining_data = firmware_data[start:end]
+    if not dump_header:
+        with open(folder/"remaining_firmwareData.bin",'wb') as f:
+            f.write(remaining_data)
+    return payload_data
+        
+def main(file_path,output,spec_path, dump_header):
     file = Path(file_path)
     #name of main folder
     output_folder = (file.parent)
@@ -302,19 +319,30 @@ def main(file_path,output):
     # create the output folder if it does not exist
     if not os.path.exists(folder):
         os.mkdir(folder)
-    json_file_path = "spec/pldm_spec.json"
+        
+    spec_path += ".json"
+    spec_json_file_path = os.path.join("spec",spec_path)
     
     # For header extraction
-    with open(json_file_path, 'r') as json_file:
-        json_data = json.load(json_file)
+    with open(spec_json_file_path, 'r') as json_file:
+        spec_data = json.load(json_file)
     with open(file_path, 'rb') as firmware_file:
         firmware_data = firmware_file.read()
-
     output_dict = {}
-    firmware_data=search(firmware_data, json_data, output_dict)
+    offset = 0
+    firmware_data=search(firmware_data, spec_data, output_dict, offset)
 
     # make unpack folder
     new_path = folder / "unpack"
+    
+    if new_path.exists():
+        # Find the highest backup number
+        backup_number = 1
+        while (folder / f"unpack_backup_{backup_number}").exists():
+            backup_number += 1
+
+        # Rename existing unpack folder
+        new_path.rename(folder / f"unpack_backup_{backup_number}")
     new_path.mkdir()
 
     output_json = new_path/"header.json" #unpack folder inside worspace 
@@ -329,18 +357,39 @@ def main(file_path,output):
         output_dict_data = json.load(f)
 
     image_json = output_dict_data["ComponentImageInformationArea"]
-    firmware_data_new = image_extraction(firmware_data_new,image_json,new_path)
+    
+    payload_data = image_extraction(firmware_data_new,image_json,new_path, dump_header)
+    if "PLDMFWPackagePayloadChecksum" in spec_data:
+        payload_checksum = zlib.crc32(payload_data)
+        print("Unpacked Payload Checksum = ", output_dict["PLDMFWPackagePayloadChecksum"])
+        print("Calculated Payload Checksum = ", payload_checksum)
+        if output_dict["PLDMFWPackagePayloadChecksum"] == payload_checksum:
+            payload_crc_match = True
+        else:
+            payload_crc_match = False
+    return CRC_Match and payload_crc_match if "PLDMFWPackagePayloadChecksum" in spec_data else CRC_Match
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     #take fwpkg file name along with folder from the user
-    parser.add_argument("-F", "--fwpkg-file-path", help="Name of the PLDM FW update package", dest="fwpkg_file_path")
+    parser.add_argument("-F", "--fwpkg-file-path", help="Name of the PLDM FW update package", dest="fwpkg_file_path", required=True)
+    #take the spec version 
+    parser.add_argument("-S", "--spec-path", help="Version of the PLDM FW update Spec", dest="spec_path", choices=["pldm_spec_1.0.0","pldm_spec_1.1.0","pldm_spec_1.2.0","pldm_spec_1.3.0"], default="pldm_spec_1.0.0")
     #take the output folder name in which the unpaked data will be stored
     parser.add_argument("-E", "--output", required=False, help="output folder")#for error injection
+    # Return only header.json file as output
+    parser.add_argument("-D", "--dump_header_json", help="Dump Header.json from bundle", dest="dump_header_json", action="store_true", required=False)
+    # take the output path in which unpacked data/header.json file will be stored
+    # parser.add_argument("-O", "--output", help="Provide directory path for storing output data", dest="output", required=False)
     args = parser.parse_args()
     file_path = args.fwpkg_file_path
-    main(file_path,args.output)
-
+    spec_path = args.spec_path
+    dump_header = args.dump_header_json
+    output_dir = args.output
+    if main(file_path, output_dir, spec_path, dump_header):
+        print("Unpack was successful. CRC matches! Package is PLDM compliant.")
+    else:
+        print("Unpack completed. CRC mismatch detected! Package is NOT PLDM compliant.")
     
 
     

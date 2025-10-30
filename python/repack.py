@@ -9,6 +9,9 @@ import operator
 import argparse
 from pathlib import Path
 import os
+import re
+import zlib
+from functools import reduce
 
 info = {}
 output_dict = {}
@@ -19,31 +22,32 @@ def encode_timestamp(value):
         Parameters:
             value: PackageReleaseDateTime field value
     """
-    dt = datetime.strptime(value, '%Y-%m-%d %H:%M:%S:%f %z')
-    year = dt.year
-    month = dt.month
-    day = dt.day
-    hour = dt.hour
-    minute = dt.minute
-    second = dt.second
-    microsecond = dt.microsecond
-    utc_offset = dt.utcoffset().total_seconds()
-    utc_time_resolution = 0 
-    packedData = struct.pack(
-            "<hBBBBBBBBHB",
-            int(utc_offset),
-            microsecond & 0xFF,
-            (microsecond >> 8) & 0xFF,
-            (microsecond >> 16) & 0xFF,
-            second,
-            minute,
-            hour,
-            day,
-            month,
-            year,
-            utc_time_resolution
-        )
-    return packedData
+    # Extract using regex (handles both + and - offset)
+    match = re.match(r"(.+?) ([+-]\d{4})(?: \((0x[0-9a-fA-F]{2})\))?", value.strip())
+    if not match:
+        raise ValueError("Timestamp format invalid. Expected format: 'YYYY-MM-DD HH:MM:SS:ffffff ±HHMM (0xRR)'")
+
+    datetime_part, offset_str, resolution_str = match.groups()
+
+    # Parse datetime
+    dt = datetime.strptime(datetime_part.strip(), "%Y-%m-%d %H:%M:%S:%f")
+
+    # Convert offset to signed integer
+    utc_offset = int(offset_str)
+
+    # Convert resolution to int
+    utc_time_resolution = int(resolution_str, 16) if resolution_str else 0x00
+
+    # Extract components
+    packed = (
+        struct.pack("<h", utc_offset) +                       # 2 bytes: signed UTC offset
+        dt.microsecond.to_bytes(3, 'little') +                # 3 bytes: microsecond
+        struct.pack("BBBBB", dt.second, dt.minute, dt.hour, dt.day, dt.month) +  # 5 bytes
+        dt.year.to_bytes(2, 'little') +                       # 2 bytes: year
+        struct.pack("B", utc_time_resolution)                 # 1 byte: resolution
+    )
+
+    return packed
 
 def encode_data(value,data_type,data_length):
     """
@@ -56,29 +60,36 @@ def encode_data(value,data_type,data_length):
     if isinstance(value,int):
         return struct.pack(f"{data_length}s", value.to_bytes(data_length, "little"))
     if isinstance(value,str):
-        if data_type == "hex":
-            # packs the hexadecimal value into a binary string using the struct module
-            return struct.pack(f"{data_length}s", bytes.fromhex(value))
+        if data_type == "hex-le":
+            if not value:
+                return b''
+            else:
+                int_value = int(value,16) #convert hexadecimal string into an integer
+                # packs the hexadecimal value into a binary string using the struct module
+                return struct.pack(f"{data_length}s", int_value.to_bytes(data_length, "little"))
+        elif data_type == 'hex-be':
+            value = int(value, 16)
+            byte_data = value.to_bytes(data_length, byteorder='big')
+            return struct.pack(f"{data_length}s", byte_data)
+        elif data_type == 'UUID':
+            hex_str = int(value, 16)
+            data = hex_str.to_bytes(16, byteorder='big')  # UUIDs are 16 bytes
+            return data
         elif data_type == "timestamp":
             return encode_timestamp(value)
-        elif data_type == "special_decode":
-            #convert hexadecimal string into an integer
-            int_value = int(value,16) #use 16 as the base argument
-            #convert integer into bytes object
-            return int_value.to_bytes(data_length,"little")
         elif data_type == "ASCII":
             hex_string = binascii.hexlify(value.encode()).decode() 
             return bytes.fromhex(hex_string)
-        elif data_type == "utf-8":
+        elif data_type == "UTF8":
             hex_string = binascii.hexlify(value.encode('utf-8')).decode('utf-8') 
             return bytes.fromhex(hex_string)
-        elif data_type == "utf-16":
+        elif data_type == "UTF16":
             hex_string = binascii.hexlify(value.encode('utf-8')).decode('utf-16') 
             return bytes.fromhex(hex_string)
-        elif data_type == "utf-16le":
+        elif data_type == "UTF16LE":
             hex_string = binascii.hexlify(value.encode('utf-16le')).decode('utf-16le') 
             return bytes.fromhex(hex_string)
-        elif data_type == "utf-16be":
+        elif data_type == "UTF16BE":
             hex_string = binascii.hexlify(value.encode('utf-16be')).decode('utf-16be') 
             return bytes.fromhex(hex_string)
         else:
@@ -103,20 +114,21 @@ def process(firmware_data,output_dict,field_name,data_length,data_type):
         for op in operators:
             if op in data_length:
                 parts = data_length.split(op)
-                before = parts[0]
-                after = parts[1]
-                before_num = output_dict[before]
-                after_num = output_dict[after]
-                data_length = functions[op](before_num, after_num)
+                converted_parts = [int(part) if part.isdigit() else output_dict[part] for part in parts]
+                data_length = reduce(functions[op], converted_parts)
                 break
         else:
             data_length = output_dict[data_length]
 
-    value = output_dict[field_name]
-    packedData = encode_data(value,data_type,data_length)
-    #adding the encoded data to firmware data
-    firmware_data +=packedData
-    return firmware_data
+    # for field name exist
+    if field_name in output_dict:
+        value = output_dict[field_name]
+        packedData = encode_data(value,data_type,data_length)
+        #adding the encoded data to firmware data
+        firmware_data +=packedData
+        return firmware_data
+    else:
+        return firmware_data
 
 def process_count(firmware_data, output_dict, field_name, input_json_data, count_field):
     """
@@ -247,37 +259,41 @@ def search(firmware_data,input_json_data, output_dict):
                 info = output_dict
     return firmware_data
 
-def image_gluing(firmware_data,image_output_data,folder):
+def image_gluing(firmware_data,image_output_data,folder,file_path):
     """
     This function extracts data from image bin files present in the unpack folder and append it to the firmware package
         Parameters:
-            firmware_data_new  = firmware data
+            firmware_data  = header block to start with
             image_json: image dictionary from spec
             folder:output folder
     """
+
     #number of images present in the package
     count = image_output_data["ComponentImageCount"]
     for i in range(count):
         # creating file path of the image bin file
         file_name_version = image_output_data['ComponentImageInformation'][i]['ComponentVersionString']  #file version for file name
         file_name_identifier = image_output_data['ComponentImageInformation'][i]['ComponentIdentifier'] #file identifier for file name
-        file_name = file_name_identifier+"_"+file_name_version + "_image" #file name
+        file_name = file_name_identifier+"_"+file_name_version + "_image_" + str(i) #file name
         image_start = image_output_data['ComponentImageInformation'][i]['ComponentLocationOffset'] #image offset
 
-        #if image does not start immediately where the firmware_data ends
-        if(image_start != len(firmware_data)+1): 
-            size = image_start-len(firmware_data) #zero padding
+        # if image does not start immediately where the firmware_data ends
+        # /////////////////////////////////
+        if (size:=abs(image_start-len(firmware_data)) != 0): 
+            # size = image_start-len(firmware_data) #zero padding
             bytes_obj =bytes(size)
             firmware_data+=bytes_obj 
+        # ///////////////////////////////////////////
 
         # adding image data to firmware data
-        file_path = folder/"unpack"/(file_name+'.bin')  
-        with open(file_path, 'rb') as image_file: #open image bin file
+        file = file_name+'.bin'
+        image_file_path = os.path.join(file_path,file)
+        with open(image_file_path, 'rb') as image_file: #open image bin file
             image_data = image_file.read()
-        firmware_data+=image_data # add image data to firmware_data
+        firmware_data = firmware_data[:image_start]+image_data+firmware_data[image_start:]# add image data to firmware_data
     return firmware_data #return the final image data
 
-def main(file_path,output):
+def main(file_path, output, spec_path):
     file = Path(file_path)
     
     #output is when there is error
@@ -292,44 +308,78 @@ def main(file_path,output):
     folder = output or output_folder
 
     #path to the spec json file
-    json_file_path = "spec\pldm_spec.json"
+    spec_path += ".json"
+    json_file_path = os.path.join("spec",spec_path)
 
     with open(json_file_path, 'r') as json_file:
         json_data = json.load(json_file)
 
-    with open(folder/"unpack/header.json","r") as f:
+    # Creating a case for updates header checksum-pack folder
+    header_file_path = Path(os.path.join(file_path,"header.json"))
+
+    with open(header_file_path,"r") as f:
         output_dict = json.load(f)
-    
+
     #creating an empty byte object
     firmware_data = b""
     firmware_data = search(firmware_data,json_data,output_dict)
 
+    header_len = len(firmware_data)
     #storing header info in a bin file-will be used for calculating the checksum
     with open(folder/"header_info.bin",'wb') as f:
         f.write(firmware_data)
 
-    firmware_data_updated = image_gluing(firmware_data,output_dict["ComponentImageInformationArea"],folder)
-    
+    firmware_data_updated = image_gluing(firmware_data,output_dict["ComponentImageInformationArea"],folder,file_path)
+    payload_checksum = firmware_data_updated[header_len:]
+    #updating the checksum in header file and then repacking the firmware file
+    if "PLDMFWPackagePayloadChecksum" in json_data:
+        output_dict["PLDMFWPackagePayloadChecksum"] = zlib.crc32(payload_checksum)
+        with open(header_file_path, "w") as f:
+            json.dump(output_dict,f,indent=4)
+        firmware_data = b""
+        firmware_data = search(firmware_data,json_data,output_dict)
+        firmware_data_updated = image_gluing(firmware_data,output_dict["ComponentImageInformationArea"],folder,file_path)
+
     # adding signature or remaining data from the firmware file
-    remaining_data_file_path = folder/"unpack/remaining_firmwareData.bin"
-    with open(remaining_data_file_path, 'rb') as file: #open remaining firmware data bin file
-        remaining_data = file.read()
-    firmware_data_updated+= remaining_data #add the remaining data to firmware file
+    remaining_data_file_path = Path(os.path.join(file_path,"remaining_firmwareData.bin"))
+    
+    # Making remaining firmware data optional
+    if remaining_data_file_path.exists():
+        with open(remaining_data_file_path, 'rb') as file: #open remaining firmware data bin file
+            remaining_data = file.read()
+        firmware_data_updated+= remaining_data #add the remaining data to firmware file
 
     #create repack folder
     new_path = folder / "repack"
-    new_path.mkdir()
-    with open(new_path/"repacked_data.fwpkg","wb") as f:
-        f.write(firmware_data_updated)
+    if new_path.exists():
+        new_path = folder/"bundle"
+        if new_path.exists():
+            # Find the highest backup number
+            backup_number = 1
+            while(folder / f"bundle_backup_{backup_number}").exists():
+                backup_number += 1
 
+            # Rename existing bundle folder
+            new_path.rename(folder / f"bundle_backup_{backup_number}")
+        new_path.mkdir()
+        with open(new_path/"packed_data.fwpkg","wb") as f:
+            f.write(firmware_data_updated)
+        print("The packed File packed_data.fwpkg is available here ", os.path.abspath(new_path))
+    else:
+        new_path.mkdir(exist_ok=True)
+        with open(new_path/"repacked_data.fwpkg","wb") as f:
+            f.write(firmware_data_updated)
+        print("The repacked file repacked_data.fwpkg is available here ", os.path.abspath(new_path))
+    
 if __name__ == '__main__':
-
     parser = argparse.ArgumentParser()
     #take fwpkg file name along with folder from the user
     parser.add_argument("-F", "--fwpkg-file-path", help="Name of the PLDM FW update package", dest="fwpkg_file_path")
+    #take the spec version 
+    parser.add_argument("-S", "--spec-path", help="Version of the PLDM FW update Spec", dest="spec_path", choices=["pldm_spec_1.0.0","pldm_spec_1.1.0","pldm_spec_1.2.0","pldm_spec_1.3.0"], default="pldm_spec_1.0.0")
     #takes the output folder in which the corrupted package will be stored
     parser.add_argument("-E", "--output", required=False, help="output folder")#for error injection
     args = parser.parse_args()
     file_path = args.fwpkg_file_path
-    main(file_path,args.output)
-    
+    spec_path = args.spec_path
+    main(file_path,args.output, spec_path)

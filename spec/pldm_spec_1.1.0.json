@@ -1,0 +1,411 @@
+{
+  "PackageHeaderInformation": {
+    "PackageHeaderIdentifier": {
+      "length": 16,
+      "data_type": "UUID",
+      "info" : "This field is evaluated runtime"
+    },
+    "PackageHeaderFormatRevision": {
+      "length": 1,
+      "data_type": "int",
+      "info" : "This field is evaluated runtime"
+    },
+    "PackageHeaderSize": {
+      "length": 2,
+      "data_type": "int",
+      "info" : "This field is evaluated runtime"
+    },
+    "PackageReleaseDateTime": {
+      "length": 13,
+      "data_type": "timestamp"
+    },
+    "ComponentBitmapBitLength": {
+      "length": 2,
+      "data_type": "int"
+    },
+    "PackageVersionStringType": {
+      "length": 1,
+      "data_type": "hex-le",
+      "decode": {
+        "0x0": "Unknown",
+        "0x1": "ASCII",
+        "0x2": "UTF8",
+        "0x3": "UTF16",
+        "0x4": "UTF16LE",
+        "0x5": "UTF16BE"
+      }
+    },
+    "PackageVersionStringLength": {
+      "length": 1,
+      "data_type": "int"
+    },
+    "PackageVersionString": {
+      "length": "PackageVersionStringLength",
+      "data_type": "PackageVersionStringType"
+    }
+  },
+    "FirmwareDeviceIdentificationArea":{
+      "DeviceIDRecordCount":{
+        "length": 1,
+        "data_type":"int"
+      },
+      "FirmwareDeviceIDRecords": {
+        "count": "DeviceIDRecordCount",
+        "RecordLength": {
+          "length": 2,
+          "data_type": "int"
+        },
+        "DescriptorCount": {
+          "length": 1,
+          "data_type": "int"
+        },
+        "DeviceUpdateOptionFlags": {
+          "length": 4,
+          "data_type": "int",
+        "info": "32-bit field where each bit represents an update option.\n [0] - Continue component updates after failure"
+        },
+        "ComponentImageSetVersionStringType": {
+          "length": 1,
+          "data_type": "hex-le",
+          "decode": {
+            "0x0": "Unknown",
+            "0x1": "ASCII",
+            "0x2": "UTF8",
+            "0x3": "UTF16",
+            "0x4": "UTF16LE",
+            "0x5": "UTF16BE"
+          }
+        },
+        "ComponentImageSetVersionStringLength": {
+          "length": 1,
+          "data_type": "int"
+        },
+        "FirmwareDevicePackageDataLength": {
+          "length": 2,
+          "data_type": "int"
+        },
+        "ApplicableComponents": {
+          "length": "ComponentBitmapBitLength",
+          "data_type": "hex-le",
+          "info": "Bitmap indicating which firmware components are applicable to this device. \n The size of this bitfield is based on the value contained in the ComponentBitmapBitLengthfield."
+        },
+        "ComponentImageSetVersionString": {
+          "length": "ComponentImageSetVersionStringLength",
+          "data_type": "ComponentImageSetVersionStringType"
+        },
+        "RecordDescriptors": {
+          "InitialDescriptorType": {
+            "length": 2,
+            "data_type": "hex-le",
+            "decode": {
+              "0x000": "PCI Vendor ID",
+              "0x001": "IANA Enterprise ID",
+              "0x002": "UUID",
+              "0x003": "PnP Vendor ID",
+              "0x004": "ACPI Vendor ID",
+              "0x005": "IEEE Assigned Company ID",
+              "0x006": "SCSI Vendor ID"
+            }
+          },
+          "InitialDescriptorLength": {
+            "length": 2,
+            "data_type": "int"
+          },
+          "InitialDescriptorData": {
+            "length": "InitialDescriptorLength",
+            "data_type": "hex-le"
+          },
+          "count": "DescriptorCount",
+          "AdditionalDescriptorType": {
+            "length": 2,
+            "data_type": "hex-le",
+            "decode": {
+              "0x000": "PCI Vendor ID",
+              "0x001": "IANA Enterprise ID",
+              "0x002": "UUID",
+              "0x003": "PnP Vendor ID",
+              "0x004": "ACPI Vendor ID",
+              "0x005": "IEEE Assigned Company ID",
+              "0x006": "SCSI Vendor ID",
+              "0x100": "PCI Device ID",
+              "0x101": "PCI Subsystem Vendor ID",
+              "0x102": "PCI Subsystem ID",
+              "0x103": "PCI Revision ID",
+              "0x104": "PnP Product Identifier",
+              "0x105": "ACPI Product Identifier",
+              "0x106": "ASCII Model Number (Long String)",
+              "0x107": "ASCII Model Number (Short String)",
+              "0x108": "SCSI Product ID",
+              "0x109": "UBM Controller Device Code",
+              "0xffff": "Vendor Defined"
+            }
+          },
+          "AdditionalDescriptorLength": {
+            "length": 2,
+            "data_type": "int"
+          },
+          "AdditionalDescriptorIdentifierData": {
+            "length": "AdditionalDescriptorLength",
+            "data_type": "hex-le",
+            "decode": {
+              "Vendor Defined": {
+                "VendorDefinedDescriptorTitleStringType": {
+                  "length": 1,
+                  "data_type": "hex-le",
+                  "decode": {
+                    "0x0": "Unknown",
+                    "0x1": "ASCII",
+                    "0x2": "UTF8",
+                    "0x3": "UTF16",
+                    "0x4": "UTF16LE",
+                    "0x5": "UTF16BE"
+                  }
+                },
+                "VendorDefinedDescriptorTitleStringLength": {
+                  "length": 1,
+                  "data_type": "int"
+                },
+                "VendorDefinedDescriptorTitleString": {
+                  "length": "VendorDefinedDescriptorTitleStringLength",
+                  "data_type": "VendorDefinedDescriptorTitleStringType"
+                },
+                "VendorDefinedDescriptorData": {
+                  "length": "AdditionalDescriptorLength-VendorDefinedDescriptorTitleStringLength-2",
+                  "data_type": "hex-be"
+                }
+              }
+            }
+          }
+        },
+        "FirmwareDevicePackageData": {
+          "length": "FirmwareDevicePackageDataLength",
+          "data_type": "hex-le"
+        }
+      }
+    },
+    "DownstreamDeviceIdentificationArea":{
+        "DownstreamDeviceIDRecordCount":{
+            "length": 1,
+            "data_type": "int"
+        },
+        "DownstreamDeviceIDRecords":{
+            "count": "DownstreamDeviceIDRecordCount",
+            "DownstreamDeviceRecordLength":{
+                "length": 2,
+                "data_type": "int"
+            },
+            "DownstreamDeviceDescriptorCount":{
+                "length": 1,
+                "data_type": "int"
+            },
+            "DownstreamDeviceUpdateOptionFlags":{
+                "length": 4,
+                "data_type": "int"
+            },
+            "DownstreamDeviceSelfContainedActivationMinVersionStringType":{
+                "length": 1,
+                "data_type": "hex-le",
+                "decode": {
+                  "0x0": "Unknown",
+                  "0x1": "ASCII",
+                  "0x2": "UTF8",
+                  "0x3": "UTF16",
+                  "0x4": "UTF16LE",
+                  "0x5": "UTF16BE"
+                }
+            },
+            "DownstreamDeviceSelfContainedActivationMinVersionStringLength":{
+                "length": 1,
+                "data_type": "int"
+            },
+            "DownstreamDevicePackageDataLength":{
+                "length": 2,
+                "data_type": "int"
+            },
+            "DownstreamDeviceApplicableComponents":{
+                "length": "ComponentBitmapBitLength",
+                "data_type": "hex-le"
+            },
+            "DownstreamDeviceSelfContainedActivationMinVersionString":{
+                "length": "DownstreamDeviceSelfContainedActivationMinVersionStringLength",
+                "data_type": "DownstreamDeviceSelfContainedActivationMinVersionStringType"
+            },
+            "DownstreamDeviceSelfContainedActivationMinVersionComparisonStamp":{
+                "length": "4*DownstreamDeviceUpdateOptionFlags",
+                "data_type": "int"
+            },
+            "DownstreamDeviceRecordDescriptors":{
+                "InitialDescriptorType":{
+                    "length": 2,
+                    "data_type": "hex-le",
+                    "decode": {
+                        "0x000": "PCI Vendor ID",
+                        "0x001": "IANA Enterprise ID",
+                        "0x002": "UUID",
+                        "0x003": "PnP Vendor ID",
+                        "0x004": "ACPI Vendor ID",
+                        "0x010": "PCI Device ID",
+                        "0x101": "PCI Subsystem Vendor ID",
+                        "0x102": "PCI Subsystem ID",
+                        "0x103": "PCI Revision ID",
+                        "0x104": "PnP Product Identifier",
+                        "0x105": "ACPI Product Identifier",
+                        "0xffff": "Vendor Defined"
+                    }
+                },
+                "InitialDescriptorLength":{
+                    "length": 2,
+                    "data_type": "int"
+                },
+                "InitialDescriptorData":{
+                    "length": "InitialDescriptorLength",
+                    "data_type": "hex-le"
+                },
+                "count": "DownstreamDeviceDescriptorCount",
+                "AdditionalDescriptorType":{
+                    "length": 2,
+                    "data_type": "hex-le",
+                    "decode": {
+                        "0x000": "PCI Vendor ID",
+                        "0x001": "IANA Enterprise ID",
+                        "0x002": "UUID",
+                        "0x003": "PnP Vendor ID",
+                        "0x004": "ACPI Vendor ID",
+                        "0x100": "PCI Device ID",
+                        "0x101": "PCI Subsystem Vendor ID",
+                        "0x102": "PCI Subsystem ID",
+                        "0x103": "PCI Revision ID",
+                        "0x104": "PnP Product Identifier",
+                        "0x105": "ACPI Product Identifier",
+                        "0xffff": "Vendor Defined"
+                    }
+                },
+                "AdditionalDescriptorLength":{
+                    "length": 2,
+                    "data_type": "int"
+                },
+                "AdditionalDescriptorIdentifierData":{
+                    "length": "AdditionalDescriptorLength",
+                    "data_type": "hex-le",
+                    "decode": {
+                        "Vendor Defined": {
+                        "VendorDefinedDescriptorTitleStringType": {
+                            "length": 1,
+                            "data_type": "hex-le",
+                            "decode": {
+                            "0x0": "Unknown",
+                            "0x1": "ASCII",
+                            "0x2": "UTF8",
+                            "0x3": "UTF16",
+                            "0x4": "UTF16LE",
+                            "0x5": "UTF16BE"
+                            }
+                        },
+                        "VendorDefinedDescriptorTitleStringLength": {
+                            "length": 1,
+                            "data_type": "int"
+                        },
+                        "VendorDefinedDescriptorTitleString": {
+                            "length": "VendorDefinedDescriptorTitleStringLength",
+                            "data_type": "VendorDefinedDescriptorTitleStringType"
+                        },
+                          "VendorDefinedDescriptorData": {
+                            "length": "AdditionalDescriptorLength-VendorDefinedDescriptorTitleStringLength-2",
+                            "data_type": "hex-be"
+                          }
+                        }
+                    }
+                }
+            },
+          "DownstreamDevicePackageData": {
+            "length": "DownstreamDevicePackageDataLength",
+            "data_type": "hex-le"
+          }
+        }
+    },
+    "ComponentImageInformationArea": {
+        "ComponentImageCount": {
+            "length": 2,
+            "data_type": "int"
+        },
+        "ComponentImageInformation": {
+            "count":"ComponentImageCount",
+            "ComponentClassification": {
+            "length": 2,
+            "data_type": "hex-le",
+            "decode": {
+              "0x000": "Unknown",
+              "0x001": "Other",
+              "0x002": "Driver",
+              "0x003": "Configuration Software",
+              "0x004": "Application Software",
+              "0x005": "Instrumentation",
+              "0x006": "Firmware/BIOS",
+              "0x007": "Diagnostic Software",
+              "0x008": "Operating System",
+              "0x009": "Middleware",
+              "0x00A": "Firmware",
+              "0x00B": "BIOS/FCode",
+              "0x00C": "Support/Service Pack",
+              "0x00D": "Software Bundle",
+              "0x8000": "Reserved for Vendor Defined values",
+              "0xffff": "Downstream Device"
+
+            }
+            },
+            "ComponentIdentifier": {
+            "length": 2,
+            "data_type": "hex-le"
+            },
+            "ComponentComparisonStamp": {
+                "length": 4,
+                "data_type": "int"
+            },
+            "ComponentOptions": {
+                "length": 2,
+                "data_type": "hex-le",
+                "info": "Bitfield indicating update options.\n [1] - Use Component Comparison Stamp \n [0] - Force Update "
+            },
+            "RequestedComponentActivationMethod": {
+                "length": 2,
+                "data_type": "hex-le",
+                "info": "Bitfield specifying preferred activation methods.\n [5] - AC power cycle \n [4] - DC power cycle \n [3] - System reboot \n [2] - Medium-specific reset \n [1] - Self-Contained (can be performed upon transmission of ActivateFirmware command) \n [0] - Automatic (becomes active as the Apply completes, or as download completes if the FD performs an auto-apply)"
+            },
+            "ComponentLocationOffset": {
+                "length": 4,
+                "data_type": "int"
+            },
+            "ComponentSize": {
+                "length": 4,
+                "data_type": "int"
+            },
+            "ComponentVersionStringType": {
+                "length": 1,
+                "data_type": "hex-le",
+                "decode":{
+                    "0x0":"string",
+                    "0x1":"ASCII",
+                    "0x2":"UTF8",
+                    "0x3":"UTF16",
+                    "0x4":"UTF16LE",
+                    "0x5":"UTF16BE"
+                }
+            },
+            "ComponentVersionStringLength": {
+                "length": 1,
+                "data_type": "int"
+            },
+            "ComponentVersionString": {
+                "length": "ComponentVersionStringLength",
+                "data_type": "ComponentVersionStringType"
+            }
+        }
+    },
+    "PackageHeaderChecksum": {
+      "length": 4,
+      "data_type": "int",
+      "info" : "This field is evaluated runtime"
+    }
+  }
+  
+  
