@@ -17,22 +17,7 @@ sys.path.append(parent_dir)
 from python import unpack
 from python import repack
 
-#To be removed
-def corrupt_binary_data_old(data, positions=None):
-    # for each position, flip the last bit of the byte in the data
-    for pos in positions:
-      # get the byte index
-      byte_index = pos
-      # get the byte as an integer
-      byte = data[byte_index]
-      # check if the byte is a valid UTF-8 byte
-      if (0x00 <= byte <= 0x7f) or (0xc0 <= byte <= 0xdf) or (0xe0 <= byte <= 0xef) or (0xf0 <= byte <= 0xf7):
-        # flip the last bit using XOR operation
-        byte ^= 1
-        # replace the byte in the data with the flipped one
-        data[byte_index] = byte
-    # return the corrupted data
-    return data
+
 
 def corrupt_binary_data(data):
     # first byte align the hex string 
@@ -88,28 +73,6 @@ def UUID_error(output_dict):
     output_dict["FirmwareDeviceIdentificationArea"]["FirmwareDeviceIDRecords"][target_record]["RecordDescriptors"][1]["AdditionalDescriptorIdentifierData"] = corrupted_data
     #### Data is corruptes inside output dictionary
 
-def image_error_old(output_dict,firmware_data,error_folder):
-    """
-    This function injects error in the image file having ComponentIdentifier 0x70
-    Parameter:
-        output_dict: ouptut dictionary having all the values
-        firmware_data:Pldm firmware package
-        error_folder:output error folder
-    """
-    error_folder = str(error_folder)
-    file_name_version = output_dict["ComponentImageInformationArea"]['ComponentImageInformation'][4]['ComponentVersionString']
-    file_name_identifier = output_dict["ComponentImageInformationArea"]['ComponentImageInformation'][4]['ComponentIdentifier']
-    file_name = file_name_identifier+"_"+file_name_version + "_image.bin"
-    image_start = output_dict["ComponentImageInformationArea"]['ComponentImageInformation'][4]['ComponentLocationOffset']
-    image_end = image_start+output_dict["ComponentImageInformationArea"]['ComponentImageInformation'][4]['ComponentSize']
-    #extarct the image data
-    image_data = firmware_data[image_start:image_end]
-    mask = 0b00000010 # create a mask with a 1 bit at position 7
-    corrupted_data = bytes([image_data[0] ^ mask] + list(image_data[1:])) # flip the bit using bitwise XOR and create a new byte string
-    file_name_path = error_folder+"/unpack/"+file_name
-    #write back the corrupted data to image bin file
-    with open(file_name_path,'wb') as f:
-            f.write(corrupted_data)
 
 def image_error(output_dict,firmware_data,error_folder):
     """
@@ -166,7 +129,7 @@ def largefile_error(file_name,start,end):
         # Write zeros to the file padding times
         f.write(b"\x00" * padding)
 
-def main(file_path,error_file):
+def main(file_path, error_file, spec_path):
     file = Path(file_path)
     #name of the file
     file_name = file.name
@@ -176,7 +139,7 @@ def main(file_path,error_file):
     #creating a specific error folder
     error_folder = str(folder)+"_error_"+str(error_file)
     
-    unpack.main(file_path,error_folder)
+    unpack.main(file_path, error_folder, spec_path, None)
 
     #loading data in output dictionary
     with open(error_folder+"/unpack/header.json","r") as f:
@@ -204,7 +167,9 @@ def main(file_path,error_file):
         json.dump(output_dict, file, indent=4)
 
     #repack the output file having corrupted data
-    repack.main(file_path,error_folder)
+
+    file_path = os.path.join(error_folder, "unpack")
+    repack.main(file_path, error_folder, spec_path)
 
     #loading header info
     with open(error_folder+"/header_info.bin", 'rb') as file:
@@ -219,7 +184,7 @@ def main(file_path,error_file):
     #this is the corrupted data with correct checksum
     corrupted_data_correct_checksum = corrupted_data_without_Checksum + correct_checksum_bytes
     #update the fields inside output_dict
-    output_dict["Package Header Checksum"] = correct_checksum
+    output_dict["PackageHeaderChecksum"] = correct_checksum
 
     #rewrite the correct checksum in output dictionary
     with open(error_folder+"/unpack/header.json", "w") as file:
@@ -229,10 +194,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     #take fwpkg file name along with folder from the user
     parser.add_argument("-F", "--fwpkg-file-path", help="Name of the PLDM FW update package", dest="fwpkg_file_path")
+    #take the spec version 
+    parser.add_argument("-S","--spec-path", required=True, help="Version of the PLDM FW Update Spec", dest="spec_path")
     #takes the error from the user  
     parser.add_argument("-E","--error_file",help="Enter the type of error to be injected", dest="error_file",choices=["descriptor", "UUID", "image","signkey","largefile"])
     args = parser.parse_args()
     file_path = args.fwpkg_file_path # path of the firmware package
+    spec_path = args.spec_path
     error_file = args.error_file
-    main(file_path,error_file)
+    main(file_path, error_file, spec_path)
     

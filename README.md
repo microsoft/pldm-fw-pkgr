@@ -33,7 +33,7 @@ The code is sensitive to the following rules
 	i) Every field has a "length" and "data_type" attribute that the code looks for. 
 	ii) You could have a repeated section by using the "count" field - means that the bytstream has to be repeat-decoded for everything underneath the "count" attribute (if found).  
 	iii) The "count" and "length" fields can be indirect references of other fields or a calculation/expression of two fields with an operator inbetween. 
-	iv) The "data type" decode types are limited - check for supported data types - hex, int, string, bytes, timestamp, ASCII, utf-8, utf-16, utf-16le, utf-16be & finally special_decode.
+	iv) The "data type" decode types are limited - check for supported data types - UUID, hex-le, hex-be, int, string, timestamp, ASCII, utf-8, utf-16, utf-16le and utf-16be.
 	v) The "data type" could also have a variable decode, in which case the "decode" field needs to be added.  
 
 Refer the pldm_spec.json file for examples of these rules. 
@@ -43,28 +43,32 @@ To build an executable using PyInstaller, run the below command line.
 python -m pip install PyInstaller
 python -m PyInstaller --add-data "spec/pldm_spec.json;spec" --collect-submodules python --collect-submodules spec --collect-submodules invoker invoker/pldm.py
 
-And then use the pldm.exe under dist/pldm folder to use the tool in the below ways. Alternatively you can replace pldm.exe with "python invoker\pldm.py" and run with the same options
+And then use the pldm.exe under dist/pldm folder to use the tool in the below ways. Alternatively you can replace pldm.exe with "python python\<filename>.py" and run with the same options
 
 ## Getting Started with the executable
 
 1. To unpack a firmware bundle (.fwpkg file)
 	Copy the fwpkg file to any workspace folder and run
 	
-	pldm.exe -F workspace\<name of bundle file>.fwpkg -N unpack
+	pldm.exe -F workspace\<name of bundle file>.fwpkg
+	or
+	python python/unpack.py -F workspace\<name of bundle file>.fwpkg
 	
 	If the package is PLDM compliant, this will create an "unpack" folder within the workspace folder and generate  
-		i) component image files (as ComponentIdentifier_ComponentVersionString.bin)
+		i) component image files (as <ComponentIdentifier>_<ComponentVersionString>_image_<count>.bin)
 		ii) header.json file (PLDM Header file)
 
 2. To repack a firmware bundle
-	If not available, point to the unpack folder which contains the component image files (.bin) and header.json file (populated) and run
+	Point to the unpack folder which contains the component image files (.bin) and header.json file (populated) and run
 	
-	pldm.exe -F workspace\unpack -N repack
+	pldm.exe -F workspace\unpack
+	or
+	python python\repack.py -F workspace\unpack
 	
 	If the components and header are PLDM compliant, then it would create a "repack" folder, with the PLDM bundle image (repacked_data.fwpkg)
 
-3. To inject error, point to the 
-	If not available, point to the unpack folder which contains the component image files and header.json files and run
+3. To inject error
+	Point to the PLDM bundle image or repacked_data.fwpkg to inject error
 	
 	pldm.exe -F workspace\repack\repacked_data.fwpkg -E descriptor OR 
 	pldm.exe -F workspace\repack\repacked_data.fwpkg -E UUID OR
@@ -74,15 +78,6 @@ And then use the pldm.exe under dist/pldm folder to use the tool in the below wa
 	
 	In each of the cases above, a new folder gets created inside workspace with the new set of unpacked and repacked fwpkg file.
 
-4. To unpack and repack a firmware bundle (.fwpkg file) - you might want to check if the two firmware packages are identical, 				
-   Copy the fwpkg file to any workspace folder and run
-
-   pldm.exe -F workspace\<name of bundle file>.fwpkg
-   
-   If the package is PLDM compliant, this will create an "unpack" folder within the workspace folder and generate
-		i) unpack folder - houses the component images and pldm header.json file.
-		ii) repack folder - houses the rebuilt image from the unpack folder components. 
-
 ## TODO
-1. Error injection is very component specific (like a specific component can have its UUID corrupted). Need to make this random isntead.
+1. Error injection is very component specific (like a specific component can have its UUID corrupted). Need to make this random instead.
 2. The original goal of this code was meant to be spec independent. Any spec should have been able to use the unpack code to decode the spec defined byte stream. However we have some hardcodings still. Check the code to find spec field names added. 
