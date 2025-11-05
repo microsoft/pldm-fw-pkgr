@@ -39,52 +39,52 @@ The code is sensitive to the following rules
 Refer the pldm_spec.json file for examples of these rules. 
 
 To build an executable using PyInstaller, run the below command line. 
-
+```bash
 python -m pip install PyInstaller
 python -m PyInstaller --add-data "spec/pldm_spec.json;spec" --collect-submodules python --collect-submodules spec --collect-submodules invoker invoker/pldm.py
-
+```
 And then use the pldm.exe under dist/pldm folder to use the tool in the below ways. Alternatively you can replace pldm.exe with "python invoker/pldm.py" and run with the same options
 
 ## Getting Started with the executable
 
 1. To unpack a firmware bundle (.fwpkg file)
 	Copy the fwpkg file to any workspace folder and run
-	
+	```bash
 	pldm.exe -F workspace\<name of bundle file>.fwpkg -N unpack
-	or
+	# or
 	python invoker/pldm.py -F workspace\<name of bundle file>.fwpkg -N unpack
-	
+	```
 	If the package is PLDM compliant, this will create an "unpack" folder within the workspace folder and generate  
 		i) component image files (as <ComponentIdentifier>_<ComponentVersionString>_image_<count>.bin)
 		ii) header.json file (PLDM Header file)
 
 2. To repack a firmware bundle
 	Point to the unpack folder which contains the component image files (.bin) and header.json file (populated) and run
-	
+	```bash
 	pldm.exe -F workspace\unpack -N repack
-	or
+	# or
 	python invoker/pldm.py -F workspace\unpack -N repack
-	
+	```
 	If the components and header are PLDM compliant, then it would create a "repack" folder, with the PLDM bundle image (repacked_data.fwpkg)
 
 3. To inject error
 	Point to the PLDM bundle image or repacked_data.fwpkg to inject error
-	
+	```bash
 	pldm.exe -F workspace\repack\repacked_data.fwpkg -E descriptor OR 
 	pldm.exe -F workspace\repack\repacked_data.fwpkg -E UUID OR
 	pldm.exe -F workspace\repack\repacked_data.fwpkg -E image OR 
 	pldm.exe -F workspace\repack\repacked_data.fwpkg -E signkey OR 
 	pldm.exe -F workspace\repack\repacked_data.fwpkg -E largefile
-	
+	```
 	In each of the cases above, a new folder gets created inside workspace with the new set of unpacked and repacked fwpkg file.
 
 4. To dump only the header.json file from a fwpkg file
 	Point to the PLDM bundle image or repacked_data.fwpkg to dump only the header.json file
-	
+	```bash
 	pldm.exe -F workspace\repacked_data.fwpkg --dump_header_json
-	or
+	# or
 	python invoker/pldm.py -F workspace\repacked_data.fwpkg --dump_header_json
-
+	```
 	This will create a header.json file in the unpack folder.
 
 ## TODO
