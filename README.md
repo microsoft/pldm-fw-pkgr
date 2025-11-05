@@ -41,7 +41,7 @@ Refer the pldm_spec.json file for examples of these rules.
 To build an executable using PyInstaller, run the below command line. 
 
 python -m pip install PyInstaller
-python -m PyInstaller --add-data "spec/pldm_spec.json;spec" --collect-submodules python --collect-submodules spec --collect-submodules invoker invoker/pldm.py
+python -m PyInstaller --add-data "spec/pldm_spec.json;spec" --collect-submodules python --collect-submodules spec --collect-submodules invoker python/pldm.py
 
 And then use the pldm.exe under dist/pldm folder to use the tool in the below ways. Alternatively you can replace pldm.exe with "python python\<filename>.py" and run with the same options
 
